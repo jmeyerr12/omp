@@ -1,10 +1,14 @@
-CC=gcc
-CFLAGS=-O3 -march=native -fopenmp -pipe -Wall -Wextra
+CC = gcc
+CFLAGS = -O3 -march=native -Wall -Wextra 
+OMPFLAGS = -fopenmp
 
-all: ssp
+all: ssp_seq ssp_omp
 
-ssp: ssp.c
+ssp_seq: ssp_seq.c
 	$(CC) $(CFLAGS) $< -o $@
-	
+
+ssp_omp: ssp_omp.c
+	$(CC) $(CFLAGS) $(OMPFLAGS) $< -o $@
+
 clean:
-	rm -f ssp
+	rm -f ssp_seq ssp_omp
