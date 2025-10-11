@@ -10,60 +10,48 @@
 using String = std::string;
 template <typename T> using Set = std::set<T>;
 
+// Checa se 'a' é prefixo de 'b'
 static inline bool is_prefix(const String& a, const String& b) {
     if (a.size() > b.size()) return false;
     return std::mismatch(a.begin(), a.end(), b.begin()).first == a.end();
 }
 
-static inline String suffix_from(const String& x, size_t i) {
-    return x.substr(i);
-}
 static inline String remove_prefix(const String& x, size_t n) {
-    return (x.size() > n) ? x.substr(n) : x;
+    return (x.size() > n) ? x.substr(n) : String();
 }
 
-static Set<String> all_suffixes(const String& x) {
-    Set<String> ss;
-    if (x.empty()) return ss;
-    for (size_t n = x.size(); n > 0; --n) ss.insert(x.substr(n - 1));
-    ss.erase(x); // remove o sufixo “inteiro” para ficar igual ao esqueleto do prof
-    return ss;
-}
-
-static String common_suffix_prefix(const String& a, const String& b) {
-    if (a.empty() || b.empty()) return "";
-    String best = "";
-    for (const String& s : all_suffixes(a)) {
-        if (is_prefix(s, b) && s.size() > best.size()) best = s;
-    }
-    return best;
-}
-
+// Calcula o maior k tal que o sufixo de tamanho k de s == prefixo de t.
+// Implementação iterativa sem alocações (mais rápida que gerar todos sufixos).
 static inline size_t overlap_value(const String& s, const String& t) {
-    return common_suffix_prefix(s, t).size();
+    const size_t maxk = std::min(s.size(), t.size());
+    for (size_t k = maxk; k > 0; --k) {
+        // compara s[s.size()-k .. s.size()) com t[0 .. k)
+        if (std::equal(s.end() - k, s.end(), t.begin())) return k;
+    }
+    return 0;
 }
 
 static inline String overlap_merge(const String& s, const String& t) {
-    String c = common_suffix_prefix(s, t);
-    return s + remove_prefix(t, c.size());
+    size_t k = overlap_value(s, t);
+    return s + remove_prefix(t, k);
 }
 
 static String shortest_superstring_parallel(Set<String> ss) {
     if (ss.empty()) return "";
 
     while (ss.size() > 1) {
-        // snapshot em vetor p/ varrer pares com OpenMP
+        // snapshot em vetor p/ avaliar pares com OpenMP
         std::vector<String> v(ss.begin(), ss.end());
-        const int m = (int)v.size();
+        const int m = static_cast<int>(v.size());
 
         int best_i = -1, best_j = -1;
-        long best_val = -1;
+        size_t best_val = 0;
 
         // Paraleliza a busca do par com maior overlap
         #pragma omp parallel
         {
             int li = -1, lj = -1;
-            long lv = -1;
+            size_t lv = 0;
 
             #pragma omp for schedule(static) nowait
             for (int idx = 0; idx < m * m; ++idx) {
@@ -71,8 +59,8 @@ static String shortest_superstring_parallel(Set<String> ss) {
                 int j = idx % m;
                 if (i == j) continue;
                 size_t ov = overlap_value(v[i], v[j]);
-                if ((long)ov > lv) {
-                    lv = (long)ov; li = i; lj = j;
+                if (ov > lv) {
+                    lv = ov; li = i; lj = j;
                 }
             }
 
@@ -82,13 +70,14 @@ static String shortest_superstring_parallel(Set<String> ss) {
             }
         }
 
-        // Caso degenerado: se nada foi encontrado (não deve acontecer), junte dois quaisquer
+        // Se por algum motivo não achou (não deve acontecer), junte dois quaisquer
         if (best_i < 0 || best_j < 0 || best_i == best_j) {
             auto it1 = ss.begin();
             auto it2 = std::next(it1);
             String merged = overlap_merge(*it1, *it2);
+            // Em std::set, apagar um iterador não invalida os demais (exceto o apagado).
             ss.erase(it1);
-            ss.erase(ss.begin()); // it2 invalida ao apagar o primeiro; mais simples pegar begin() de novo
+            ss.erase(it2);
             ss.insert(std::move(merged));
             continue;
         }
@@ -97,7 +86,7 @@ static String shortest_superstring_parallel(Set<String> ss) {
         const String &A = v[best_i], &B = v[best_j];
         String merged = overlap_merge(A, B);
 
-        // Remove A e B do set original e insere o mesclado
+        // Remove A e B do set original e insere a mesclada
         ss.erase(A);
         ss.erase(B);
         ss.insert(std::move(merged));
@@ -115,7 +104,7 @@ int main() {
     Set<String> ss;
     for (size_t i = 0; i < n; ++i) {
         String s; std::cin >> s;
-        ss.insert(std::move(s));
+        ss.insert(std::move(s)); // Set remove duplicadas automaticamente
     }
 
     double t0 = omp_get_wtime();
