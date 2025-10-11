@@ -5,8 +5,8 @@
 #include <utility>
 #include <chrono> //medicao de tempo
 
-#define standard_input  std::cin
-#define standard_output std::cout
+#define standard_input  std::cin      
+#define standard_output std::cout    
 
 using Boolean = bool ;
 using Size    = std::size_t ;
@@ -91,18 +91,21 @@ suffix_from_position (const String& x, SizeType <String> i) -> String
 inline auto
 remove_prefix (const String& x, SizeType <String> n) -> String
 {
-    if (size (x) > n)
-        return suffix_from_position (x, n) ;
-    return x ;
+    // CORREÇÃO: o código original retornava a própria string se n >= |x|,
+    // o que gerava duplicação quando o overlap cobria toda a string.
+    // Agora retorna string vazia nesse caso.
+    if (n >= size(x)) return String();
+    return suffix_from_position (x, n) ;
 }
 
 auto
 all_suffixes (const String& x) -> Set <String>
 {
     Set <String> ss ;
-    SizeType <String> n = size (x) ;
-    while (-- n) {
-        ss.insert (x.substr (n)) ;
+    // CORREÇÃO: evitar underflow (quando x é vazia) e incluir o sufixo inteiro (substr(0))
+    if (empty(x)) return ss ;
+    for (SizeType<String> i = 0; i < size(x); ++i) {
+        ss.insert(x.substr(i));
     }
     return ss ;
 }
@@ -150,7 +153,7 @@ all_distinct_pairs (const Set <String>& ss) -> Set <Pair <String, String>>
     Set <Pair <String, String>> x ;
     for (const String& s1 : ss) {
         for (const String& s2 : ss) {
-            if (s1 != s2) x.insert (make_pair (s1, s2)) ;
+            if (s1 != s2) x.insert (std::make_pair (s1, s2)) ;
         }
     }
     return x ;
@@ -228,25 +231,20 @@ write_string_to_standard_ouput (const String& s) -> void
     write_string_and_break_line (standard_output, s) ;
 }
 
-/* auto
-main (int argc, char const* argv[]) -> int
-{
-    Set <String> ss = read_strings_from_standard_input () ;
-    write_string_to_standard_ouput (shortest_superstring (ss)) ;
-    return 0 ;
-} */
 
 auto
 main (int argc, char const* argv[]) -> int
 {
     Set<String> ss = read_strings_from_standard_input();
 
-    auto start = std::chrono::high_resolution_clock::now();
-    write_string_to_standard_ouput(shortest_superstring(ss));
-    auto end = std::chrono::high_resolution_clock::now();
+    auto t0 = std::chrono::high_resolution_clock::now();
+    String super = shortest_superstring(ss);
+    auto t1 = std::chrono::high_resolution_clock::now();
 
-    std::chrono::duration<double> elapsed = end - start;
-    standard_output << elapsed.count() << std::endl;
+    write_string_to_standard_ouput(super);
+
+    std::chrono::duration<double> dt = t1 - t0;
+    standard_output << dt.count() << std::endl;
 
     return 0;
 }

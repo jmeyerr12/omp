@@ -1,0 +1,1 @@
+input,threads,seq_mean_s,seq_sd_s,omp_mean_s,omp_sd_s,speedup,efficiency
