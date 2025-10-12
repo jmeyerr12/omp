@@ -5,7 +5,7 @@
 #include <utility>
 #include <chrono>
 #include <omp.h>
-#include <vector>  // <-- inclusão necessária
+#include <vector>
 
 #define standard_input  std::cin
 #define standard_output std::cout
@@ -26,12 +26,13 @@ using Set = std::set<T>;
 template <typename T>
 using SizeType = typename T::size_type;
 
+double global_parallel_time = 0.0;
+
 // ---------------- Funções auxiliares (mesmas do sequencial) ----------------
 template <typename C> inline auto size(const C& x) -> SizeType<C> { return x.size(); }
 template <typename C> inline auto empty(const C& x) -> Boolean { return x.empty(); }
 
 template <typename T> inline auto first_element(const Set<T>& x) -> T { return *(x.begin()); }
-
 template <typename T> inline auto remove(Set<T>& x, const T& e) -> Set<T>& { x.erase(e); return x; }
 template <typename T> inline auto push(Set<T>& x, const T& e) -> Set<T>& { x.insert(e); return x; }
 
@@ -41,11 +42,7 @@ inline auto is_prefix(const String& a, const String& b) -> Boolean {
 }
 
 inline auto suffix_from_position(const String& x, SizeType<String> i) -> String { return x.substr(i); }
-
-inline auto remove_prefix(const String& x, SizeType<String> n) -> String {
-    if (n >= size(x)) return String();
-    return suffix_from_position(x, n);
-}
+inline auto remove_prefix(const String& x, SizeType<String> n) -> String { return (n < size(x)) ? x.substr(n) : String(); }
 
 auto all_suffixes(const String& x) -> Set<String> {
     Set<String> ss;
@@ -80,7 +77,7 @@ auto all_distinct_pairs(const Set<String>& ss) -> Set<Pair<String, String>> {
     return x;
 }
 
-// ---------------- Comparador para empates ----------------
+// ---------------- Comparador ----------------
 static inline bool better_tiebreak(size_t ov1, const String& a1, const String& b1,
                                    size_t ov2, const String& a2, const String& b2) {
     if (ov1 != ov2) return ov1 > ov2;
@@ -90,33 +87,38 @@ static inline bool better_tiebreak(size_t ov1, const String& a1, const String& b
 
 // ---------------- Parte paralelizada ----------------
 auto highest_overlap_value_parallel(const Set<Pair<String, String>>& sp) -> Pair<String, String> {
-    std::vector<Pair<String, String>> vp(sp.begin(), sp.end());
-    if (vp.empty()) return *sp.begin();
+    using namespace std::chrono;
+    auto t0 = high_resolution_clock::now();
 
+    std::vector<Pair<String, String>> vp(sp.begin(), sp.end());
     Pair<String, String> best = vp[0];
     size_t best_val = overlap_value(best.first, best.second);
 
     #pragma omp parallel
     {
-        Pair<String, String> lbest = best;
-        size_t lval = best_val;
+        Pair<String, String> local_best = best;
+        size_t local_val = best_val;
 
         #pragma omp for schedule(static) nowait
         for (int i = 0; i < (int)vp.size(); ++i) {
             const auto& p = vp[i];
             size_t ov = overlap_value(p.first, p.second);
-            if (better_tiebreak(ov, p.first, p.second, lval, lbest.first, lbest.second)) {
-                lbest = p; lval = ov;
+            if (better_tiebreak(ov, p.first, p.second, local_val, local_best.first, local_best.second)) {
+                local_val = ov;
+                local_best = p;
             }
         }
 
         #pragma omp critical
         {
-            if (better_tiebreak(lval, lbest.first, lbest.second, best_val, best.first, best.second)) {
-                best = lbest; best_val = lval;
+            if (better_tiebreak(local_val, local_best.first, local_best.second, best_val, best.first, best.second)) {
+                best = local_best; best_val = local_val;
             }
         }
     }
+
+    auto t1 = high_resolution_clock::now();
+    global_parallel_time += duration<double>(t1 - t0).count();
 
     return best;
 }
@@ -143,10 +145,8 @@ auto shortest_superstring_parallel_fiel(Set<String> t) -> String {
 }
 
 // ---------------- I/O e medição ----------------
-inline auto write_string_and_break_line(OutStream& out, String s) -> void { out << s << std::endl; }
 inline auto read_size(InStream& in) -> Size { Size n; in >> n; return n; }
 inline auto read_string(InStream& in) -> String { String s; in >> s; return s; }
-
 auto read_strings_from_standard_input() -> Set<String> {
     using N = SizeType<Set<String>>;
     Set<String> x;
@@ -155,20 +155,18 @@ auto read_strings_from_standard_input() -> Set<String> {
     return x;
 }
 
-inline auto write_string_to_standard_ouput(const String& s) -> void { write_string_and_break_line(standard_output, s); }
-
-auto main(int, char const*[]) -> int {
+int main() {
     Set<String> ss = read_strings_from_standard_input();
 
-    auto t0 = std::chrono::high_resolution_clock::now();
+    auto start = std::chrono::high_resolution_clock::now();
     String super = shortest_superstring_parallel_fiel(ss);
-    auto t1 = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::high_resolution_clock::now();
 
-    write_string_to_standard_ouput(super);
+    double total = std::chrono::duration<double>(end - start).count();
+    double seq_frac = 1.0 - (global_parallel_time / total);
 
-    std::chrono::duration<double> dt = t1 - t0;
-    standard_output.setf(std::ios::fixed);
-    standard_output << dt.count() << std::endl;
+    std::cout << super << "\n";
+    std::cerr << total << " " << global_parallel_time << " " << seq_frac << "\n";
 
     return 0;
 }
