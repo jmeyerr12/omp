@@ -2,7 +2,7 @@
 # Gera múltiplos arquivos de teste em ./inputs usando APENAS ./input_gen
 # Formato final: 1ª linha = N, seguido de exatamente N strings.
 
-TARGET_NS=(70 75 80 85 90 95 100 105 110 120 125 130 140 150 160 170 180 190 200 250)  # ajuste conforme necessário
+TARGET_NS=(70 80 90 100 110 120 130 140 150 160 170 180 190 200)  # ajuste conforme necessário
 GEN="${GEN:-./input_gen}"
 OUTDIR="inputs"
 TMPDIR=".tmp_gen_inputs"

@@ -5,39 +5,35 @@ CC   = gcc
 CXX  = g++
 
 # -----------------------------
-# Flags de compilação
+# Flags de compilação (iguais para todos)
 # -----------------------------
-CFLAGS   = -O3 -march=native -Wall -Wextra
-CXXFLAGS = -O3 -std=c++11 -Wall -Wextra
-OMPFLAGS = -fopenmp
+BASECXXFLAGS = -O3 -march=native -DNDEBUG -Wall -Wextra -std=c++11 -pipe
+OMPFLAGS    = -fopenmp
 
 # -----------------------------
 # Alvos principais
 # -----------------------------
-all: shsup_seq shsup_omp shsup_seq_not_compat shsup_omp_not_compat input_gen
+# Ajuste aqui os alvos que você realmente usa no trabalho
+all: shsup_seq_not_compat shsup_omp_not_compat shsup_omp_not_compat_serial
 
-# Versão sequencial (professor original)
-shsup_seq: shortest_superstring.cc
-	$(CXX) $(CXXFLAGS) $< -o $@
-
-# Versão paralela OpenMP (professor original)
-shsup_omp: shortest_superstring_omp.cc
-	$(CXX) $(CXXFLAGS) $(OMPFLAGS) $< -o $@
-
-# Versão sequencial corrigida (not_compat)
+# Versão sequencial (not_compat)
 shsup_seq_not_compat: shortest_superstring_not_compat.cc
-	$(CXX) $(CXXFLAGS) $< -o $@
+	$(CXX) $(BASECXXFLAGS) $< -o $@
 
-# Versão paralela corrigida (not_compat)
+# Versão paralela OpenMP (not_compat)
 shsup_omp_not_compat: shortest_superstring_omp_not_compat.cc
-	$(CXX) $(CXXFLAGS) $(OMPFLAGS) $< -o $@
+	$(CXX) $(BASECXXFLAGS) $(OMPFLAGS) $< -o $@
 
-# Gerador de entradas
+# Versão "serial-equivalente" da OMP (compila o mesmo código SEM -fopenmp)
+shsup_omp_not_compat_serial: shortest_superstring_omp_not_compat.cc
+	$(CXX) $(BASECXXFLAGS) $< -o $@
+
+# (Opcional) Gerador de entradas, se você utilizar
 input_gen: input-generator.cc
-	$(CXX) $(CXXFLAGS) $< -o $@
+	$(CXX) $(BASECXXFLAGS) $< -o $@
 
 # -----------------------------
 # Limpeza
 # -----------------------------
 clean:
-	rm -f shsup_seq shsup_omp shsup_seq_not_compat shsup_omp_not_compat input_gen
+	rm -f shsup_seq_not_compat shsup_omp_not_compat shsup_omp_not_compat_serial input_gen
