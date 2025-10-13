@@ -5,7 +5,7 @@ set -euo pipefail
 # Parâmetros
 # ===========================
 REPS=${REPS:-20}
-THREADS="${THREADS:-1 2 4 8 16}"
+THREADS="${THREADS:-1 2 4 8 16 32}"
 INPUTS=${INPUTS:-"inputs/*.txt inputs/*.in"}
 
 SEQ="${SEQ:-./shsup_seq_not_compat}"
