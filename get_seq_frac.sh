@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BIN="./shsup_omp_not_compat_serial"   # <-- coloque aqui o seu executável
-INFILE="inputs/input_200.txt"                   # <-- arquivo de entrada (ou remova se não precisa)
+INFILE="inputs/input_220.txt"                   # <-- arquivo de entrada (ou remova se não precisa)
 REPS=5
 
 sum_total=0

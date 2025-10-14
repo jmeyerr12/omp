@@ -203,3 +203,19 @@ auto main (int /*argc*/, char const* /*argv*/[]) -> int
 
     return 0;
 }
+
+/* seq frac output
+╰─$ ./get_seq_frac.sh
+===========================================
+Média do tempo TOTAL (s):       11.295580
+Média do tempo SEQUENCIAL (s):  0.132678
+Porcentagem SEQUENCIAL média:   1.17%
+===========================================
+╭─meyer@mey ~/d/p6/paralela/omp ‹main●› 
+╰─$ ./get_seq_frac.sh
+===========================================
+Média do tempo TOTAL (s):       11.342800
+Média do tempo SEQUENCIAL (s):  0.132345
+Porcentagem SEQUENCIAL média:   1.17%
+===========================================
+*/
