@@ -114,7 +114,7 @@ auto pair_of_strings_with_highest_overlap_value (const Set <String>& ss) -> Pair
         #pragma omp single
         t0 = omp_get_wtime();
 
-        #pragma omp for collapse(2) schedule(static)
+        #pragma omp for schedule(static) nowait
         for (int i = 0; i < n; ++i) {
             for (int j = 0; j < n; ++j) {
                 if (i == j) continue;
