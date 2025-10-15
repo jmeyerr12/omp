@@ -32,4 +32,4 @@ input_gen: input-generator.cc
 # Limpeza
 # -----------------------------
 clean:
-	rm -f shsup_seq_not_compat shsup_omp_not_compat shsup_omp_not_compat_serial input_gen
+	rm -f shsup_omp_not_compat shsup_omp_not_compat_serial input_gen
