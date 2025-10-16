@@ -132,15 +132,15 @@ inline auto pop_two_elements_and_push_overlap (Set <String>& ss, const Pair <Str
 
 auto all_distinct_pairs (const std::vector<String>& ss) -> std::vector<Pair<String,String>>
 {
-    int n = ss.size();
+    ll size = ss.size();
     auto tstart = std::chrono::high_resolution_clock::now();
 
     std::vector<Pair<String,String>> pairs;
-    pairs.reserve(n * (n - 1));
+    pairs.reserve(size * (size - 1));
 
     #pragma omp parallel for
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < (int)n; j++) {
+    for (ll i = 0; i < size; i++) {
+        for (ll j = 0; j < (int)size; j++) {
             if (i == j) continue;
             #pragma omp critical
             pairs.emplace_back(ss[i], ss[j]);

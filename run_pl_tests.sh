@@ -13,7 +13,7 @@ OMP="${OMP:-./shsup_paralel}"
 OMP_SERIAL="${OMP_SERIAL:-./shsup_sequential}"
 
 # CSV de saída
-CSV_FILE="${CSV_OUT:-results_collapse.csv}"
+CSV_FILE="${CSV_OUT:-results.csv}"
 
 # ===========================
 # Utils
