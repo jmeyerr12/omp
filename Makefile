@@ -14,15 +14,7 @@ OMPFLAGS    = -fopenmp
 # Alvos principais
 # -----------------------------
 # Ajuste aqui os alvos que você realmente usa no trabalho
-all: shsup_omp_not_compat shsup_omp_not_compat_serial shsup_sequential shsup_paralel
-
-# Versão paralela OpenMP (not_compat)
-shsup_omp_not_compat: shortest_superstring_omp_not_compat.cc
-	$(CXX) $(BASECXXFLAGS) $(OMPFLAGS) $< -o $@
-
-# Versão "serial-equivalente" da OMP (compila o mesmo código SEM -fopenmp)
-shsup_omp_not_compat_serial: shortest_superstring_omp_not_compat.cc
-	$(CXX) $(BASECXXFLAGS) $< -o $@
+all: shsup_sequential shsup_paralel
 
 # Versão totalmente sequencial
 shsup_sequential: shortest_superstring_paralel.cc

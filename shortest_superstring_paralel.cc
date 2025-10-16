@@ -130,78 +130,60 @@ inline auto pop_two_elements_and_push_overlap (Set <String>& ss, const Pair <Str
     return ss;
 }
 
-auto all_distinct_pairs (const Set <String>& ss) -> Set <Pair <String, String>>
+auto all_distinct_pairs (const std::vector<String>& ss) -> std::vector<Pair<String,String>>
 {
-    Set <Pair <String, String>> x;
-    for (const String& s1 : ss) {
-        for (const String& s2 : ss) {
-            if (s1 != s2) x.insert (std::make_pair (s1, s2));
-        }
-    }
-    return x;
-}
+    int n = ss.size();
+    auto tstart = std::chrono::high_resolution_clock::now();
 
-auto highest_overlap_value (const Set <Pair <String, String>>& sp) -> Pair <String, String>
-{
-    Pair <String, String> x = first_element (sp);
-    for (const Pair <String, String>& p : sp) {
-        if (overlap_value (p.first, p.second) > overlap_value (x.first, x.second)) {
-            x = p;
+    std::vector<Pair<String,String>> pairs;
+    pairs.reserve(n * (n - 1));
+
+    #pragma omp parallel for
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < (int)n; j++) {
+            if (i == j) continue;
+            #pragma omp critical
+            pairs.emplace_back(ss[i], ss[j]);
         }
     }
-    return x;
+
+    auto tend = std::chrono::high_resolution_clock::now();
+    global_paralel_time += std::chrono::duration<double>(tend - tstart).count();
+    return pairs;
 }
 
 static inline bool lex_compare(const Pair<String,String>& a, const Pair<String,String>& b) {
     return (a.first < b.first) || (a.first == b.first && a.second < b.second);
 }
 
-
-static auto find_best_overlap_pair(const std::vector<String>& v) -> Pair<String,String> {
-    Pair<String,String> best_pair = { v[0], v[1] };
-    OverlapSize best_ov = overlap_value(best_pair.first, best_pair.second);
+static auto highest_overlap_value(const std::vector<Pair<String,String>>& v) -> Pair<String,String> {
+    Pair<String,String> best_pair = v[0];
+    OverlapSize best_overlap = overlap_value(best_pair.first, best_pair.second);
     auto tstart = std::chrono::high_resolution_clock::now();
 
-#ifdef _OPENMP //parte paralelizada
     #pragma omp parallel
     {
         Pair<String,String> local_pair = best_pair;
-        OverlapSize local_ov = best_ov;
+        OverlapSize local_overlap = best_overlap;
 
-        #pragma omp for schedule(dynamic) collapse(2) //collapse(2) - melhora muito o speedup por algum motivo, rodar sem de noite por backup
+        #pragma omp for schedule(dynamic)
         for (ll i = 0; i < (ll)v.size(); ++i) {
-            for (ll j = 0; j < (ll)v.size(); ++j) {
-                if (i == j) continue;
-                OverlapSize ov = overlap_value(v[(size_t)i], v[(size_t)j]);
-                Pair<String,String> cand = { v[(size_t)i], v[(size_t)j] };
-                if (ov > local_ov || (ov == local_ov && lex_compare(cand, local_pair))) {
-                    local_ov = ov;
-                    local_pair = cand;
-                }
+            const auto& cand = v[(size_t)i];
+            auto ov = overlap_value(cand.first, cand.second);
+            if (ov > local_overlap || (ov == local_overlap && lex_compare(cand, local_pair))) {
+                local_overlap = ov;
+                local_pair = cand;
             }
         }
 
         #pragma omp critical
         {
-            if (local_ov > best_ov || (local_ov == best_ov && lex_compare(local_pair, best_pair))) {
-                best_ov = local_ov;
+            if (local_overlap > best_overlap || (local_overlap == best_overlap && lex_compare(local_pair, best_pair))) {
+                best_overlap = local_overlap;
                 best_pair = local_pair;
             }
         }
     }
-#else //parte sequencial
-     for (ll i = 0; i < (ll)v.size(); ++i) {
-        for (ll j = 0; j < (ll)v.size(); ++j) {
-            if (i == j) continue;
-            OverlapSize ov = overlap_value(v[i], v[j]);
-            Pair<String,String> cand = { v[i], v[j] };
-            if (ov > best_ov || (ov == best_ov && lex_compare(cand, best_pair))) {
-                best_ov = ov;
-                best_pair = cand;
-            }
-        }
-    }
-#endif
 
     auto tend = std::chrono::high_resolution_clock::now();
     global_paralel_time += std::chrono::duration<double>(tend - tstart).count();
@@ -214,7 +196,7 @@ auto pair_of_strings_with_highest_overlap_value (const Set <String>& ss) -> Pair
 
     if (v.size () < 2) return v.empty() ? Pair<String,String>{"",""} : Pair<String,String>{v[0], v[0]};
 
-    return find_best_overlap_pair(v); 
+    return highest_overlap_value(all_distinct_pairs(v)); 
 }
 
 auto
