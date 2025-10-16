@@ -9,11 +9,11 @@ THREADS="${THREADS:-1 2 4 8 16 32}"
 INPUTS=${INPUTS:-"inputs/*.txt inputs/*.in"}
 
 # Binaries
-OMP="${OMP:-./shsup_omp_not_compat}"
-OMP_SERIAL="${OMP_SERIAL:-./shsup_omp_not_compat_serial}"
+OMP="${OMP:-./shsup_paralel}"
+OMP_SERIAL="${OMP_SERIAL:-./shsup_sequential}"
 
 # CSV de saída
-CSV_FILE="${CSV_OUT:-results_pl.csv}"
+CSV_FILE="${CSV_OUT:-results_collapse.csv}"
 
 # ===========================
 # Utils
