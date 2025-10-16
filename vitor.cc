@@ -1,4 +1,3 @@
-
 #include <algorithm>
 #include <iostream>
 #include <set>
@@ -152,72 +151,89 @@ auto highest_overlap_value (const Set <Pair <String, String>>& sp) -> Pair <Stri
     return x;
 }
 
-// novas funções -> codigo paralelizado
+// novas funcoes -> codigo paralelizado
+// ja que o set deixa os pares ordenados por default, funcao de comparador serve pra desempatar lexicograficamente
 static inline bool comparador(const Pair<String,String>& a, const Pair<String,String>& b)
 {
     return (a.first < b.first) || (a.first == b.first && a.second < b.second);
 }
 
-static auto resolvedor_ssp (const std::vector<String>& v) -> Pair<String,String>
+static auto montaPares_paralelo (const vector<String>& v) -> vector<Pair<String,String>>
 {
-
-
-    using OV = SizeType<String>;
-    Pair<String,String> best_pair = { v[0], v[1] };
-    OV best_ov = overlap_value(best_pair.first, best_pair.second);
+    int n = v.size();
     auto t0 = chrono::high_resolution_clock::now();
+
+    vector<Pair<String,String>> pairs;
+    pairs.reserve(n * (n - 1));
+
+    #pragma omp parallel for collapse(2)
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < (int)n; j++) {
+            if (i == j) continue;
+            #pragma omp critical
+            pairs.emplace_back(v[i], v[j]);
+        }
+    }
+
+    auto t1 = chrono::high_resolution_clock::now();
+    tempo_paralelo += chrono::duration<double>(t1 - t0).count();
+    return pairs;
+}
+
+
+static auto par_com_maior_OLV(const vector<Pair<String,String>>& pairs) -> Pair<String,String>
+{
+    auto t0 = chrono::high_resolution_clock::now();
+
+    Pair<String,String> g = pairs[0];
+    SizeType<String> g_ov = overlap_value(g.first, g.second);
 
     #pragma omp parallel
     {
-        Pair<String,String> local_pair = best_pair;
-        OV local_ov = best_ov;
+        Pair<String,String> best = g;
+        SizeType<String> bov = g_ov;
 
-        #pragma omp for collapse(2) nowait
-        for (int64_t i = 0; i < (int64_t)v.size(); ++i) {
-            for (int64_t j = 0; j < (int64_t)v.size(); ++j) {
-                if (i == j) continue;
-                OV ov = overlap_value(v[(size_t)i], v[(size_t)j]);
-                Pair<String,String> cand = { v[(size_t)i], v[(size_t)j] };
-                if (ov > local_ov || (ov == local_ov && comparador(cand, local_pair))) {
-                    local_ov = ov;
-                    local_pair = cand;
-                }
+        #pragma omp for schedule(dynamic)
+        for (long k = 0; k < (long)pairs.size(); ++k) {
+            const auto& pr = pairs[(size_t)k];
+            auto ov = overlap_value(pr.first, pr.second);
+            if (ov > bov || (ov == bov && comparador(pr, best))) {
+                bov = ov; best = pr;
             }
         }
 
         #pragma omp critical
         {
-            if (local_ov > best_ov || (local_ov == best_ov && comparador(local_pair, best_pair))) {
-                best_ov = local_ov;
-                best_pair = local_pair;
+            if (bov > g_ov || (bov == g_ov && comparador(best, g))) {
+                g_ov = bov; g = best;
             }
         }
     }
 
     auto t1 = chrono::high_resolution_clock::now();
     tempo_paralelo += chrono::duration<double>(t1 - t0).count();
-    return best_pair;
+    return g;
 }
-// fim das novas funcoes
+
+
+// faz o equivalente do "return highest_overlap_value (all_distinct_pairs (ss))";
+static auto resolvedor_ssp (const vector<String>& v) -> Pair<String,String>
+{
+    return par_com_maior_OLV(montaPares_paralelo(v));
+}
 
 auto pair_of_strings_with_highest_overlap_value (const Set <String>& ss) -> Pair <String, String>
 {
     vector<String> v (ss.begin (), ss.end ());
-
-    if (v.size () < 2) {
-        return v.empty() ? Pair<String,String>{"",""} : Pair<String,String>{v[0], v[0]};
-    }
-
-    // nova parte -> paralelizada
     return resolvedor_ssp(v);
 }
 
-// parte sequencial -> não paralelizada
+// parte sequencial -> nao paralelizada
 auto shortest_superstring (Set <String> t) -> String
 {
     if (empty (t)) return "";
 
-    // guloso com dependência entre iterações -> permanece sequencial
+    // guloso com dependencia entre iteracoes -> sequencial
     while (at_least_two_elements_in (t)) {
         t = pop_two_elements_and_push_overlap(t, pair_of_strings_with_highest_overlap_value (t));
     }
@@ -266,6 +282,7 @@ auto main (int argc, char const* argv[]) -> int
     double total = chrono::duration<double>(end - start).count();
     double seq_frac = 1.0 - (tempo_paralelo / total);
 
-    cout << total << " " << tempo_paralelo << " " << seq_frac << "\n";
+    //cerr << ((total-tempo_paralelo)/total) * 100 << "%\n";
+    cerr << total << " " << tempo_paralelo << " " << seq_frac << "\n";
     return 0;
 }
