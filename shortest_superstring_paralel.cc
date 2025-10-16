@@ -169,9 +169,9 @@ static auto highest_overlap_value(const std::vector<Pair<String,String>>& v) -> 
         #pragma omp for schedule(dynamic)
         for (ll i = 0; i < (ll)v.size(); ++i) {
             const auto& cand = v[(size_t)i];
-            auto ov = overlap_value(cand.first, cand.second);
-            if (ov > local_overlap || (ov == local_overlap && lex_compare(cand, local_pair))) {
-                local_overlap = ov;
+            auto ovrlp = overlap_value(cand.first, cand.second);
+            if (ovrlp > local_overlap || (ovrlp == local_overlap && lex_compare(cand, local_pair))) {
+                local_overlap = ovrlp;
                 local_pair = cand;
             }
         }
