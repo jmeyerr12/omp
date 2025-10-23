@@ -138,11 +138,9 @@ auto all_distinct_pairs (const std::vector<String>& ss) -> std::vector<Pair<Stri
     std::vector<Pair<String,String>> pairs;
     pairs.reserve(size * (size - 1));
 
-    #pragma omp parallel for
     for (ll i = 0; i < size; i++) {
         for (ll j = 0; j < (int)size; j++) {
             if (i == j) continue;
-            #pragma omp critical
             pairs.emplace_back(ss[i], ss[j]);
         }
     }
