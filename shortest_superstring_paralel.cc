@@ -132,16 +132,25 @@ inline auto pop_two_elements_and_push_overlap (Set <String>& ss, const Pair <Str
 
 auto all_distinct_pairs (const std::vector<String>& ss) -> std::vector<Pair<String,String>>
 {
-    ll size = ss.size();
+    using ll = long long;
+    const ll size = static_cast<ll>(ss.size());
+    const ll total = size * (size - 1);
+
     auto tstart = std::chrono::high_resolution_clock::now();
 
     std::vector<Pair<String,String>> pairs;
-    pairs.reserve(size * (size - 1));
+    pairs.resize(total); // pré-aloca e garante índices válidos
 
-    for (ll i = 0; i < size; i++) {
-        for (ll j = 0; j < (int)size; j++) {
-            if (i == j) continue;
-            pairs.emplace_back(ss[i], ss[j]);
+    // Cada i escreve em um bloco contíguo: [i*(size-1) ... i*(size-1)+(size-2)]
+    #pragma omp parallel for schedule(dynamic)
+    for (ll i = 0; i < size; ++i) {
+        const ll base = i * (size - 1);
+        ll k = 0; // deslocamento dentro do bloco de i
+        for (ll j = 0; j < size; ++j) {
+            if (j == i) continue;
+            // índice global dentro do vetor "pairs" para (i,j)
+            const ll idx = base + k++;
+            pairs[idx] = Pair<String,String>(ss[i], ss[j]);
         }
     }
 
