@@ -1,3 +1,4 @@
+// sss.cpp — versão com guards; MPI sem MPI_Op e sem MPI_Datatype custom
 #include <algorithm>
 #include <iostream>
 #include <string>
@@ -95,92 +96,82 @@ static void bcast_strings(std::vector<String>& v, int root, MPI_Comm comm) {
     }
 }
 
-/* ---- Melhor par + redução customizada ---- */
-struct BestPair {
-    int ov;  // overlap
-    int i, j; // índices (ordem importa: i -> j)
-};
-
-static inline bool better(const BestPair& A, const BestPair& B) {
-    if (A.ov != B.ov) return A.ov > B.ov;
-    if (A.i  != B.i ) return A.i  < B.i ;
-    return A.j < B.j;
-}
-
-static void reduce_bestpair(void* in, void* inout, int* len, MPI_Datatype* dtype) {
-    BestPair* a = (BestPair*)in;
-    BestPair* b = (BestPair*)inout;
-    for (int k = 0; k < *len; ++k) {
-        if (better(a[k], b[k])) b[k] = a[k];
-    }
-}
-
-static void create_bestpair_type_and_op(MPI_Datatype* T, MPI_Op* OP) {
-    BestPair tmp;
-    int blocklen[3] = {1,1,1};
-    MPI_Aint disp[3], base;
-    MPI_Get_address(&tmp, &base);
-    MPI_Get_address(&tmp.ov, &disp[0]);
-    MPI_Get_address(&tmp.i,  &disp[1]);
-    MPI_Get_address(&tmp.j,  &disp[2]);
-    for (int k = 0; k < 3; ++k) disp[k] -= base;
-
-    MPI_Datatype types[3] = {MPI_INT,MPI_INT,MPI_INT};
-    MPI_Type_create_struct(3, blocklen, disp, types, T);
-    MPI_Type_commit(T);
-
-    MPI_Op_create(&reduce_bestpair, /*commute=*/1, OP);
-}
-
-/* k -> (i,j) (pares dirigidos, i != j) */
+/* ---- Helpers para pares dirigidos (i != j) ---- */
 static inline void linear_to_pair(long long k, int n, int& i, int& j) {
     i = (int)(k / (n - 1));
     int r = (int)(k % (n - 1));
     j = (r < i) ? r : (r + 1);
 }
 
-/* Busca paralela do melhor par */
-static BestPair find_global_best_pair_mpi(const std::vector<String>& v, MPI_Datatype TBest, MPI_Op OBest, MPI_Comm comm) {
-    int nprocs, rank;
+// Critério: maior overlap; em empate, menor i; depois menor j
+static inline bool better_triplet(const int A[3], const int B[3]) {
+    if (A[0] != B[0]) return A[0] > B[0];
+    if (A[1] != B[1]) return A[1] < B[1];
+    return A[2] < B[2];
+}
+
+/* Cada processo calcula seu melhor local {ov,i,j}; rank 0 coleta, decide e difunde */
+static void find_global_best_pair_mpi_gather(const std::vector<String>& v,
+                                             int out_best[3],
+                                             MPI_Comm comm)
+{
+    int rank, nprocs;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &nprocs);
 
     const int n = (int)v.size();
     const long long total = (long long)n * (n - 1);
 
-    BestPair local{ -1, 0, 0 };
-
+    // Range balanceado (primeiros 'rem' ranks recebem +1)
     long long chunk = total / nprocs;
     long long rem   = total % nprocs;
     long long beg   = rank * chunk + std::min<long long>(rank, rem);
     long long end   = beg + chunk + (rank < rem ? 1 : 0);
 
+    int local[3] = {-1, 0, 0};
     for (long long k = beg; k < end; ++k) {
-        int i, j;
-        linear_to_pair(k, n, i, j);
-        int ov = (int)overlap_value(v[i], v[j]);
-        BestPair cand{ ov, i, j };
-        if (better(cand, local)) local = cand;
+        int i, j; linear_to_pair(k, n, i, j);
+        int cand[3] = { (int)overlap_value(v[i], v[j]), i, j };
+        if (better_triplet(cand, local)) {
+            local[0] = cand[0]; local[1] = cand[1]; local[2] = cand[2];
+        }
     }
 
-    BestPair global{ -1, 0, 0 };
-    MPI_Allreduce(&local, &global, 1, TBest, OBest, comm);
-    return global;
+    // Rank 0 coleta tudo; cada processo envia 3 ints
+    std::vector<int> gathered;
+    if (rank == 0) gathered.resize(3 * nprocs);
+    MPI_Gather(local, 3, MPI_INT,
+               (rank==0 ? gathered.data() : nullptr), 3, MPI_INT,
+               0, comm);
+
+    // Rank 0 escolhe o melhor e faz broadcast do triplet
+    if (rank == 0) {
+        int best[3] = {-1, 0, 0};
+        for (int p = 0; p < nprocs; ++p) {
+            int cand[3] = { gathered[3*p+0], gathered[3*p+1], gathered[3*p+2] };
+            if (better_triplet(cand, best)) {
+                best[0] = cand[0]; best[1] = cand[1]; best[2] = cand[2];
+            }
+        }
+        out_best[0] = best[0]; out_best[1] = best[1]; out_best[2] = best[2];
+    }
+    MPI_Bcast(out_best, 3, MPI_INT, 0, comm);
 }
 
-/* Broadcast do merge (respeita ordem i->j) e aplicação local */
+/* Broadcast do merge decidido no root e aplicação local (ordem i->j) */
 static void bcast_and_apply_merge(std::vector<String>& v, int i, int j, MPI_Comm comm) {
     MPI_Bcast(&i, 1, MPI_INT, 0, comm);
     MPI_Bcast(&j, 1, MPI_INT, 0, comm);
 
-    int len = 0;
-    String merged;
     int rank; MPI_Comm_rank(comm, &rank);
 
+    int len = 0;
+    String merged;
     if (rank == 0) {
-        merged = overlap_merge(v[i], v[j]); // ordem original importa
+        merged = overlap_merge(v[i], v[j]);
         len = (int)merged.size();
     }
+
     MPI_Bcast(&len, 1, MPI_INT, 0, comm);
     if (rank != 0) merged.resize(len);
     if (len > 0) MPI_Bcast(&merged[0], len, MPI_CHAR, 0, comm);
@@ -189,21 +180,18 @@ static void bcast_and_apply_merge(std::vector<String>& v, int i, int j, MPI_Comm
     v.erase(v.begin() + j);
 }
 
-/* Loop guloso distribuído */
-static String shortest_superstring_mpi(std::vector<String> v, MPI_Datatype TBest, MPI_Op OBest, MPI_Comm comm) {
+/* Loop guloso distribuído usando Gather+Bcast para selecionar o melhor par */
+static String shortest_superstring_mpi(std::vector<String> v, MPI_Comm comm) {
     while ((int)v.size() > 1) {
-        BestPair best = find_global_best_pair_mpi(v, TBest, OBest, comm);
-        bcast_and_apply_merge(v, best.i, best.j, comm);
+        int best[3]; // {ov,i,j}
+        find_global_best_pair_mpi_gather(v, best, comm);
+        bcast_and_apply_merge(v, best[1], best[2], comm);
     }
     return v.empty() ? "" : v[0];
 }
 
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
-
-    MPI_Datatype TBest;
-    MPI_Op       OBest;
-    create_bestpair_type_and_op(&TBest, &OBest);
 
     int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
@@ -212,17 +200,15 @@ int main(int argc, char** argv) {
     bcast_strings(v, 0, MPI_COMM_WORLD);
 
     auto t0 = std::chrono::high_resolution_clock::now();
-    String ans = shortest_superstring_mpi(v, TBest, OBest, MPI_COMM_WORLD);
+    String ans = shortest_superstring_mpi(v, MPI_COMM_WORLD);
     auto t1 = std::chrono::high_resolution_clock::now();
     double elapsed = std::chrono::duration<double>(t1 - t0).count();
 
     if (rank == 0) {
         std::cout << ans << "\n";
-        std::cerr << elapsed << "s\n";
+        std::cout << elapsed << "\n";
     }
 
-    MPI_Op_free(&OBest);
-    MPI_Type_free(&TBest);
     MPI_Finalize();
     return 0;
 }
