@@ -103,11 +103,13 @@ static inline void linear_to_pair(long long k, int n, int& i, int& j) {
     j = (r < i) ? r : (r + 1);
 }
 
-// Critério: maior overlap; em empate, menor i; depois menor j
-static inline bool better_triplet(const int A[3], const int B[3]) {
+// Critério: maior overlap; em empate, ordem lexicografica
+static inline bool better_triplet(const int A[3], const int B[3], const std::vector<String>& v) {
+    // A = {ovA, iA, jA}
+    // B = {ovB, iB, jB}
     if (A[0] != B[0]) return A[0] > B[0];
-    if (A[1] != B[1]) return A[1] < B[1];
-    return A[2] < B[2];
+    if (v[A[1]] != v[B[1]]) return v[A[1]] < v[B[1]];
+    return v[A[2]] < v[B[2]];
 }
 
 /* Cada processo calcula seu melhor local {ov,i,j}; rank 0 coleta, decide e difunde */
@@ -132,7 +134,7 @@ static void find_global_best_pair_mpi_gather(const std::vector<String>& v,
     for (long long k = beg; k < end; ++k) {
         int i, j; linear_to_pair(k, n, i, j);
         int cand[3] = { (int)overlap_value(v[i], v[j]), i, j };
-        if (better_triplet(cand, local)) {
+        if (better_triplet(cand, local, v)) {
             local[0] = cand[0]; local[1] = cand[1]; local[2] = cand[2];
         }
     }
@@ -149,7 +151,7 @@ static void find_global_best_pair_mpi_gather(const std::vector<String>& v,
         int best[3] = {-1, 0, 0};
         for (int p = 0; p < nprocs; ++p) {
             int cand[3] = { gathered[3*p+0], gathered[3*p+1], gathered[3*p+2] };
-            if (better_triplet(cand, best)) {
+            if (better_triplet(cand, best, v)) {
                 best[0] = cand[0]; best[1] = cand[1]; best[2] = cand[2];
             }
         }
