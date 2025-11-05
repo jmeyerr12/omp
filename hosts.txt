@@ -1,3 +1,5 @@
-h51 cpu=4
-h50 cpu=4
-h52 cpu=4
+h32 cpu=4
+h33 cpu=4
+h31 cpu=4
+h34 cpu=4
+h21 cpu=4
