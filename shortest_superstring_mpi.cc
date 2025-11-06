@@ -1,4 +1,4 @@
-// sss.cpp — versão com guards; MPI sem MPI_Op e sem MPI_Datatype custom
+// sss.cpp — versão com guards; MPI com MPI_Reduce + MPI_Datatype/MPI_Op
 #include <algorithm>
 #include <iostream>
 #include <string>
@@ -103,18 +103,71 @@ static inline void linear_to_pair(long long k, int n, int& i, int& j) {
     j = (r < i) ? r : (r + 1);
 }
 
-// Critério: maior overlap; em empate, ordem lexicografica
-static inline bool better_triplet(const int A[3], const int B[3], const std::vector<String>& v) {
-    // A = {ovA, iA, jA}
-    // B = {ovB, iB, jB}
-    if (A[0] != B[0]) return A[0] > B[0];
-    if (v[A[1]] != v[B[1]]) return v[A[1]] < v[B[1]];
-    return v[A[2]] < v[B[2]];
+/* ---- Struct para a redução: melhor tripleta com desempate por rank lexicográfico ----
+   Campos:
+     ov  : overlap (maior é melhor)
+     i,j : índices do par (ordem dirigida i->j)
+     ri,rj : ranks lexicográficos de v[i], v[j] (menor rank = string "menor")
+*/
+struct Best {
+    int ov;
+    int i, j;
+    int ri, rj;
+};
+
+/* ---- MPI_Datatype para Best ---- */
+static MPI_Datatype BEST_TYPE;
+
+static void create_best_datatype() {
+    Best dummy;
+    int blocklen[5] = {1,1,1,1,1};
+    MPI_Aint disp[5];
+    MPI_Aint base;
+    MPI_Get_address(&dummy, &base);
+    MPI_Get_address(&dummy.ov, &disp[0]);
+    MPI_Get_address(&dummy.i,  &disp[1]);
+    MPI_Get_address(&dummy.j,  &disp[2]);
+    MPI_Get_address(&dummy.ri, &disp[3]);
+    MPI_Get_address(&dummy.rj, &disp[4]);
+    for (int k=0;k<5;++k) disp[k] -= base;
+    MPI_Datatype types[5] = {MPI_INT, MPI_INT, MPI_INT, MPI_INT, MPI_INT};
+    MPI_Type_create_struct(5, blocklen, disp, types, &BEST_TYPE);
+    MPI_Type_commit(&BEST_TYPE);
 }
 
-/* Cada processo calcula seu melhor local {ov,i,j}; rank 0 coleta, decide e difunde */
-static void find_global_best_pair_mpi_gather(const std::vector<String>& v,
-                                             int out_best[3],
+/* ---- Operador de redução: escolhe o "melhor" Best (associativo/commutativo) ---- */
+static MPI_Op BEST_OP;
+
+static void best_reduce_func(void* invec, void* inoutvec, int* len, MPI_Datatype* dtype) {
+    Best* in  = static_cast<Best*>(invec);
+    Best* io  = static_cast<Best*>(inoutvec);
+    for (int k = 0; k < *len; ++k) {
+        const Best& A = in[k];
+        Best&       B = io[k];
+        // critério: maior ov; empate -> menor ri; empate -> menor rj
+        bool takeA = (A.ov > B.ov) ||
+                     (A.ov == B.ov && (A.ri < B.ri ||
+                      (A.ri == B.ri && A.rj < B.rj)));
+        if (takeA) B = A;
+    }
+}
+
+/* ---- Rank lexicográfico das strings: mesmo em todos os processos ---- */
+static std::vector<int> compute_lex_ranks(const std::vector<String>& v) {
+    int n = (int)v.size();
+    std::vector<int> idx(n);
+    for (int i = 0; i < n; ++i) idx[i] = i;
+    std::stable_sort(idx.begin(), idx.end(),
+        [&](int a, int b){ return v[a] < v[b]; });
+    std::vector<int> rank(n);
+    for (int r = 0; r < n; ++r) rank[idx[r]] = r;
+    return rank;
+}
+
+/* ---- Redução global (MPI_Reduce) do melhor par usando Best ---- */
+static void find_global_best_pair_mpi_reduce(const std::vector<String>& v,
+                                             const std::vector<int>& lexrank,
+                                             Best& out_best,
                                              MPI_Comm comm)
 {
     int rank, nprocs;
@@ -124,43 +177,46 @@ static void find_global_best_pair_mpi_gather(const std::vector<String>& v,
     const int n = (int)v.size();
     const long long total = (long long)n * (n - 1);
 
-    // Range balanceado (primeiros 'rem' ranks recebem +1)
-    long long chunk = total / nprocs;
-    long long rem   = total % nprocs;
+    // range balanceado (primeiros 'rem' ranks recebem +1)
+    long long chunk = (nprocs ? total / nprocs : total);
+    long long rem   = (nprocs ? total % nprocs : 0);
     long long beg   = rank * chunk + std::min<long long>(rank, rem);
     long long end   = beg + chunk + (rank < rem ? 1 : 0);
 
-    int local[3] = {-1, 0, 0};
+    Best local{};
+    local.ov = -1; local.i = 0; local.j = 0; local.ri = 0; local.rj = 0;
+
     for (long long k = beg; k < end; ++k) {
         int i, j; linear_to_pair(k, n, i, j);
-        int cand[3] = { (int)overlap_value(v[i], v[j]), i, j };
-        if (better_triplet(cand, local, v)) {
-            local[0] = cand[0]; local[1] = cand[1]; local[2] = cand[2];
-        }
+        int ov = (int)overlap_value(v[i], v[j]);
+        Best cand{ov, i, j, lexrank[i], lexrank[j]};
+        // aplica o mesmo critério do reduce para manter consistência local
+        bool takeC = (cand.ov > local.ov) ||
+                     (cand.ov == local.ov && (cand.ri < local.ri ||
+                      (cand.ri == local.ri && cand.rj < local.rj)));
+        if (takeC) local = cand;
     }
 
-    // Rank 0 coleta tudo; cada processo envia 3 ints
-    std::vector<int> gathered;
-    if (rank == 0) gathered.resize(3 * nprocs);
-    MPI_Gather(local, 3, MPI_INT,
-               (rank==0 ? gathered.data() : nullptr), 3, MPI_INT,
-               0, comm);
+    Best root_best{};
+    MPI_Reduce(&local, &root_best, 1, BEST_TYPE, BEST_OP, 0, comm);
 
-    // Rank 0 escolhe o melhor e faz broadcast do triplet
+    // root difunde o resultado (3 ints bastam para seguir o fluxo)
+    int triple[3];
     if (rank == 0) {
-        int best[3] = {-1, 0, 0};
-        for (int p = 0; p < nprocs; ++p) {
-            int cand[3] = { gathered[3*p+0], gathered[3*p+1], gathered[3*p+2] };
-            if (better_triplet(cand, best, v)) {
-                best[0] = cand[0]; best[1] = cand[1]; best[2] = cand[2];
-            }
-        }
-        out_best[0] = best[0]; out_best[1] = best[1]; out_best[2] = best[2];
+        triple[0] = root_best.i;
+        triple[1] = root_best.j;
+        triple[2] = root_best.ov; // opcional, mas mantido para debug/consistência
     }
-    MPI_Bcast(out_best, 3, MPI_INT, 0, comm);
+    MPI_Bcast(triple, 3, MPI_INT, 0, comm);
+
+    out_best.i  = triple[0];
+    out_best.j  = triple[1];
+    out_best.ov = triple[2];
+    out_best.ri = lexrank[out_best.i];
+    out_best.rj = lexrank[out_best.j];
 }
 
-/* Broadcast do merge decidido no root e aplicação local (ordem i->j) */
+/* ---- Broadcast do merge decidido no root e aplicação local (ordem i->j) ---- */
 static void bcast_and_apply_merge(std::vector<String>& v, int i, int j, MPI_Comm comm) {
     MPI_Bcast(&i, 1, MPI_INT, 0, comm);
     MPI_Bcast(&j, 1, MPI_INT, 0, comm);
@@ -182,18 +238,28 @@ static void bcast_and_apply_merge(std::vector<String>& v, int i, int j, MPI_Comm
     v.erase(v.begin() + j);
 }
 
-/* Loop guloso distribuído usando Gather+Bcast para selecionar o melhor par */
+/* ---- Loop guloso distribuído usando Reduce (melhor par) + Bcast (decisão) ---- */
 static String shortest_superstring_mpi(std::vector<String> v, MPI_Comm comm) {
+    // ranks lexicográficos estáveis para desempate global
+    std::vector<int> lexrank = compute_lex_ranks(v);
+
     while ((int)v.size() > 1) {
-        int best[3]; // {ov,i,j}
-        find_global_best_pair_mpi_gather(v, best, comm);
-        bcast_and_apply_merge(v, best[1], best[2], comm);
+        Best best{};
+        find_global_best_pair_mpi_reduce(v, lexrank, best, comm);
+        bcast_and_apply_merge(v, best.i, best.j, comm);
+
+        // após remover j, índices mudam; recompute ranks
+        lexrank = compute_lex_ranks(v);
     }
     return v.empty() ? "" : v[0];
 }
 
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
+
+    // prepara tipos/ops custom
+    create_best_datatype();
+    MPI_Op_create(best_reduce_func, /*commute=*/1, &BEST_OP);
 
     int rank; MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
@@ -210,6 +276,10 @@ int main(int argc, char** argv) {
         std::cout << ans << "\n";
         std::cout << elapsed << "\n";
     }
+
+    // libera recursos
+    MPI_Op_free(&BEST_OP);
+    MPI_Type_free(&BEST_TYPE);
 
     MPI_Finalize();
     return 0;
