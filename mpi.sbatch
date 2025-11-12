@@ -3,7 +3,7 @@
 #SBATCH --job-name=ssp_mpi
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=6
-#SBATCH --time=00:30:00
+#SBATCH --time=02:00:00
 #SBATCH --output=logs/mpi_%j.out
 #SBATCH --error=logs/mpi_%j.err
 

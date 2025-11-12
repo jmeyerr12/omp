@@ -3,7 +3,7 @@
 #SBATCH --job-name=ssp_seq
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --time=00:10:00
+#SBATCH --time=02:00:00
 #SBATCH --output=logs/seq_%j.out
 #SBATCH --error=logs/seq_%j.err
 
