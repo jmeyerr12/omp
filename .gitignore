@@ -1,5 +1,12 @@
 ssp_seq
 ssp_omp
+ssp_mpi
+ssp_dp
+shsup_paralel
+shsup_sequential
+ssp_mpi_2
+ssp_mpi_v2
+ssp_sequential
 ssp
 E
 .vscode
