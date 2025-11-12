@@ -175,26 +175,19 @@ static void find_global_best_pair_mpi_reduce(const std::vector<String>& v,
     MPI_Comm_size(comm, &nprocs);
 
     const int n = (int)v.size();
-    const long long total = (long long)n * (n - 1);
+    const long long total = 1LL * n * (n - 1);
 
-    // range balanceado (primeiros 'rem' ranks recebem +1)
-    long long chunk = (nprocs ? total / nprocs : total);
-    long long rem   = (nprocs ? total % nprocs : 0);
-    long long beg   = rank * chunk + std::min<long long>(rank, rem);
-    long long end   = beg + chunk + (rank < rem ? 1 : 0);
+    Best local{ -1, 0, 0, 0, 0 };
 
-    Best local{};
-    local.ov = -1; local.i = 0; local.j = 0; local.ri = 0; local.rj = 0;
-
-    for (long long k = beg; k < end; ++k) {
+    // em vez de [beg..end), use stride:
+    for (long long k = rank; k < total; k += nprocs) {
         int i, j; linear_to_pair(k, n, i, j);
         int ov = (int)overlap_value(v[i], v[j]);
-        Best cand{ov, i, j, lexrank[i], lexrank[j]};
-        // aplica o mesmo critério do reduce para manter consistência local
-        bool takeC = (cand.ov > local.ov) ||
-                     (cand.ov == local.ov && (cand.ri < local.ri ||
-                      (cand.ri == local.ri && cand.rj < local.rj)));
-        if (takeC) local = cand;
+        Best cand{ ov, i, j, lexrank[i], lexrank[j] };
+        bool take = (cand.ov > local.ov) ||
+                    (cand.ov == local.ov && (cand.ri < local.ri ||
+                    (cand.ri == local.ri && cand.rj < local.rj)));
+        if (take) local = cand;
     }
 
     Best root_best{};
