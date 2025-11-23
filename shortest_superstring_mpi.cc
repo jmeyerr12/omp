@@ -1,4 +1,3 @@
-// sss.cpp — versão com guards; MPI com MPI_Reduce + MPI_Datatype/MPI_Op
 #include <algorithm>
 #include <iostream>
 #include <string>
@@ -9,7 +8,7 @@
 using String = std::string;
 using Size   = std::size_t;
 
-/* ---------- Funções básicas (compartilhadas) ---------- */
+/* Funções básicas (compartilhadas)  */
 static inline bool is_prefix(const String& a, const String& b) {
     if (a.size() > b.size()) return false;
     return std::mismatch(a.begin(), a.end(), b.begin()).first == a.end();
@@ -52,13 +51,11 @@ static std::vector<String> read_input_from_stdin() {
     return v;
 }
 
-/* =======================================================
-   ==================  RAMO MPI (PARALELO)  ==============
-   ======================================================= */
+/* ===  RAMO MPI (PARALELO)  === */
 #ifdef USE_MPI
 #include <mpi.h>
 
-/* ---- Broadcast de vetor de strings ---- */
+// broadcast do vetor de strings
 static void bcast_strings(std::vector<String>& v, int root, MPI_Comm comm) {
     int rank;
     MPI_Comm_rank(comm, &rank);
@@ -96,26 +93,20 @@ static void bcast_strings(std::vector<String>& v, int root, MPI_Comm comm) {
     }
 }
 
-/* ---- Helpers para pares dirigidos (i != j) ---- */
+//converte o índice linear k no par (i,j) com i!=j dentro dos n*(n-1) pares dirigidos possíveis.
 static inline void linear_to_pair(long long k, int n, int& i, int& j) {
     i = (int)(k / (n - 1));
     int r = (int)(k % (n - 1));
     j = (r < i) ? r : (r + 1);
 }
 
-/* ---- Struct para a redução: melhor tripleta com desempate por rank lexicográfico ----
-   Campos:
-     ov  : overlap (maior é melhor)
-     i,j : índices do par (ordem dirigida i->j)
-     ri,rj : ranks lexicográficos de v[i], v[j] (menor rank = string "menor")
-*/
-struct Best {
-    int ov;
-    int i, j;
-    int ri, rj;
+struct Best { //struct para a reducao, seleciona maior overlap e desempata lexicograficamente
+    int ov; //overlap
+    int i, j; //indices do par (i->j)
+    int ri, rj; //ranks lexicograficos de v[i], v[j] (menor rank = string "menor")
 };
 
-/* ---- MPI_Datatype para Best ---- */
+//MPI_Datatype para Best
 static MPI_Datatype BEST_TYPE;
 
 static void create_best_datatype() {
@@ -135,7 +126,7 @@ static void create_best_datatype() {
     MPI_Type_commit(&BEST_TYPE);
 }
 
-/* ---- Operador de redução: escolhe o "melhor" Best (associativo/commutativo) ---- */
+//operador de redução: escolhe o "melhor" Best
 static MPI_Op BEST_OP;
 
 static void best_reduce_func(void* invec, void* inoutvec, int* len, MPI_Datatype* dtype) {
@@ -144,7 +135,7 @@ static void best_reduce_func(void* invec, void* inoutvec, int* len, MPI_Datatype
     for (int k = 0; k < *len; ++k) {
         const Best& A = in[k];
         Best&       B = io[k];
-        // critério: maior ov; empate -> menor ri; empate -> menor rj
+        //criterio: maior ov; empate -> menor ri; empate -> menor rj (ranks lexicograficos)
         bool takeA = (A.ov > B.ov) ||
                      (A.ov == B.ov && (A.ri < B.ri ||
                       (A.ri == B.ri && A.rj < B.rj)));
@@ -152,7 +143,7 @@ static void best_reduce_func(void* invec, void* inoutvec, int* len, MPI_Datatype
     }
 }
 
-/* ---- Rank lexicográfico das strings: mesmo em todos os processos ---- */
+//rank lexicografico das strings: mesmo em todos os processo
 static std::vector<int> compute_lex_ranks(const std::vector<String>& v) {
     int n = (int)v.size();
     std::vector<int> idx(n);
@@ -164,7 +155,7 @@ static std::vector<int> compute_lex_ranks(const std::vector<String>& v) {
     return rank;
 }
 
-/* ---- Redução global (MPI_Reduce) do melhor par usando Best ---- */
+//reducao global (MPI_Reduce) do melhor par usando Best
 static void find_global_best_pair_mpi_reduce(const std::vector<String>& v,
                                              const std::vector<int>& lexrank,
                                              Best& out_best,
@@ -179,7 +170,7 @@ static void find_global_best_pair_mpi_reduce(const std::vector<String>& v,
 
     Best local{ -1, 0, 0, 0, 0 };
 
-    // em vez de [beg..end), use stride:
+    //distribui o trabalho por stride: cada processo avalia k = rank, rank+nprocs
     for (long long k = rank; k < total; k += nprocs) {
         int i, j; linear_to_pair(k, n, i, j);
         int ov = (int)overlap_value(v[i], v[j]);
@@ -193,12 +184,12 @@ static void find_global_best_pair_mpi_reduce(const std::vector<String>& v,
     Best root_best{};
     MPI_Reduce(&local, &root_best, 1, BEST_TYPE, BEST_OP, 0, comm);
 
-    // root difunde o resultado (3 ints bastam para seguir o fluxo)
+    //root difunde o resultado (3 ints bastam para seguir o fluxo)
     int triple[3];
     if (rank == 0) {
         triple[0] = root_best.i;
         triple[1] = root_best.j;
-        triple[2] = root_best.ov; // opcional, mas mantido para debug/consistência
+        triple[2] = root_best.ov; 
     }
     MPI_Bcast(triple, 3, MPI_INT, 0, comm);
 
@@ -209,7 +200,7 @@ static void find_global_best_pair_mpi_reduce(const std::vector<String>& v,
     out_best.rj = lexrank[out_best.j];
 }
 
-/* ---- Broadcast do merge decidido no root e aplicação local (ordem i->j) ---- */
+//broadcast do merge decidido no root e aplicação local (ordem i->j)
 static void bcast_and_apply_merge(std::vector<String>& v, int i, int j, MPI_Comm comm) {
     MPI_Bcast(&i, 1, MPI_INT, 0, comm);
     MPI_Bcast(&j, 1, MPI_INT, 0, comm);
@@ -231,18 +222,16 @@ static void bcast_and_apply_merge(std::vector<String>& v, int i, int j, MPI_Comm
     v.erase(v.begin() + j);
 }
 
-/* ---- Loop guloso distribuído usando Reduce (melhor par) + Bcast (decisão) ---- */
+//loop guloso distribuído usando Reduce (melhor par) + Bcast (decisão)
 static String shortest_superstring_mpi(std::vector<String> v, MPI_Comm comm) {
-    // ranks lexicográficos estáveis para desempate global
-    std::vector<int> lexrank = compute_lex_ranks(v);
+    std::vector<int> lexrank = compute_lex_ranks(v); // ranks lexicograficos estaveis para desempate global
 
     while ((int)v.size() > 1) {
         Best best{};
         find_global_best_pair_mpi_reduce(v, lexrank, best, comm);
         bcast_and_apply_merge(v, best.i, best.j, comm);
 
-        // após remover j, índices mudam; recompute ranks
-        lexrank = compute_lex_ranks(v);
+        lexrank = compute_lex_ranks(v); //apos remover j, indices mudam; recomputa ranks
     }
     return v.empty() ? "" : v[0];
 }
@@ -278,9 +267,7 @@ int main(int argc, char** argv) {
     return 0;
 }
 
-/* =======================================================
-   =================  RAMO SEQUENCIAL (g++)  =============
-   ======================================================= */
+/* === RAMO SEQUENCIAL === */
 #else
 
 static std::pair<int,int> find_best_pair_seq(const std::vector<String>& v) {
@@ -324,11 +311,9 @@ int main(int argc, char** argv) {
     auto t1 = std::chrono::high_resolution_clock::now();
     double elapsed = std::chrono::duration<double>(t1 - t0).count();
 
-    // saída normal: sua superstring e o tempo total
     std::cout << ans << "\n";
     std::cout << elapsed << "\n";
 
-    // saída para stderr: total, parte paralelizável e fração sequencial
     double seq_time = elapsed - par_time;
     double seq_frac = (elapsed > 0.0) ? (seq_time / elapsed) : 0.0;
     std::cerr << elapsed << " " << par_time << " " << seq_frac << "\n";
