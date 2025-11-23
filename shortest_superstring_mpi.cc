@@ -283,7 +283,6 @@ int main(int argc, char** argv) {
    ======================================================= */
 #else
 
-/* Melhor par sequencial: varre todos os pares dirigidos (i != j) */
 static std::pair<int,int> find_best_pair_seq(const std::vector<String>& v) {
     int n = (int)v.size();
     int best_ov = -1, bi = 0, bj = 1;
@@ -298,11 +297,16 @@ static std::pair<int,int> find_best_pair_seq(const std::vector<String>& v) {
     return {bi, bj};
 }
 
-/* Guloso sequencial */
-static String shortest_superstring_seq(std::vector<String> v) {
+static String shortest_superstring_seq(std::vector<String> v, double& par_time) {
     while ((int)v.size() > 1) {
+
+        auto t0p = std::chrono::high_resolution_clock::now();
         auto [i, j] = find_best_pair_seq(v);
-        String merged = overlap_merge(v[i], v[j]); // ordem dirigida i->j
+        auto t1p = std::chrono::high_resolution_clock::now();
+
+        par_time += std::chrono::duration<double>(t1p - t0p).count();
+
+        String merged = overlap_merge(v[i], v[j]);
         v[i] = std::move(merged);
         v.erase(v.begin() + j);
     }
@@ -314,13 +318,22 @@ int main(int argc, char** argv) {
 
     auto v = read_input_from_stdin();
 
+    double par_time = 0.0;
     auto t0 = std::chrono::high_resolution_clock::now();
-    String ans = shortest_superstring_seq(v);
+    String ans = shortest_superstring_seq(v, par_time);
     auto t1 = std::chrono::high_resolution_clock::now();
     double elapsed = std::chrono::duration<double>(t1 - t0).count();
 
+    // saída normal: sua superstring e o tempo total
     std::cout << ans << "\n";
     std::cout << elapsed << "\n";
+
+    // saída para stderr: total, parte paralelizável e fração sequencial
+    double seq_time = elapsed - par_time;
+    double seq_frac = (elapsed > 0.0) ? (seq_time / elapsed) : 0.0;
+    std::cerr << elapsed << " " << par_time << " " << seq_frac << "\n";
+
     return 0;
 }
+
 #endif
